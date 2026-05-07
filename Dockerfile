@@ -1,17 +1,32 @@
-FROM --platform=linux/amd64 ubuntu:26.04
+FROM centos:7
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update -y && apt install --no-install-recommends -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify sudo xterm init systemd snapd vim net-tools curl wget git tzdata
-RUN apt update -y && apt install -y dbus-x11 x11-utils x11-xserver-utils x11-apps
-RUN apt install software-properties-common -y
-RUN add-apt-repository ppa:mozillateam/ppa -y
-RUN echo 'Package: *' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:jammy";' | tee /etc/apt/apt.conf.d/51unattended-upgrades-firefox
-RUN apt update -y && apt install -y firefox
-RUN apt update -y && apt install -y xubuntu-icon-theme
-RUN touch /root/.Xauthority
-EXPOSE 5901
-EXPOSE 6080
-CMD bash -c "vncserver -localhost no -SecurityTypes None -geometry 1024x768 --I-KNOW-THIS-IS-INSECURE && openssl req -new -subj "/C=JP" -x509 -days 365 -nodes -out self.pem -keyout self.pem && websockify -D --web=/usr/share/novnc/ --cert=self.pem 6080 localhost:5901 && tail -f /dev/null"
+
+# Fix repos (CentOS 7 is EOL)
+RUN sed -i 's|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/*.repo && \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/*.repo
+
+# Install GUI + VNC stack
+RUN yum -y update && yum -y install \
+    epel-release \
+    xorg-x11-server-Xvfb \
+    xfce4-panel xfce4-session xfce4-settings \
+    tigervnc-server \
+    firefox \
+    wget curl sudo net-tools xterm && \
+    yum clean all
+
+# NoVNC
+RUN yum -y install git python3 && \
+    git clone https://github.com/novnc/noVNC.git /opt/novnc && \
+    git clone https://github.com/novnc/websockify /opt/novnc/utils/websockify
+
+# VNC setup
+RUN mkdir -p /root/.vnc && \
+    echo "123456" | vncpasswd -f > /root/.vnc/passwd && \
+    chmod 600 /root/.vnc/passwd
+
+EXPOSE 5901 6080
+
+CMD bash -c "vncserver :1 -geometry 1024x768 -depth 24 && \
+/opt/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 6080"
